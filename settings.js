@@ -8,3 +8,4 @@ window.COIN_DASH = {
   droneCount: 3,
   colors: { background: 0x101c31, player: 0x71e8ce, coin: 0xffd166, drone: 0xff657a }
 };
+// Write-access check by Roi (Lab 3 setup).
