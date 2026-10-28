@@ -26,20 +26,17 @@ class CoinDash extends Phaser.Scene {
       const angle = (35 + i * 105) * Math.PI / 180;
       drone.body.setVelocity(Math.cos(angle) * c.droneSpeed, Math.sin(angle) * c.droneSpeed);
     }
-    this.chasingDrones = this.physics.add.group();
-    for (let i = 0; i < c.chasingDroneCount; i++) {
-      const drone = this.add.rectangle(100 + i * 300, 300, 26, 26, c.colors.chasingDrone);
-      this.chasingDrones.add(drone);
-      drone.body.setCollideWorldBounds(true).setBounce(1, 1);
-      drone.isChasing = true;
-    }
+    this.shooters = this.physics.add.group();
+    this.projectiles = this.physics.add.group();
+    this.lastShooterSpawn = 0;
+    this.lastShooterShot = {};
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
-    this.physics.add.overlap(this.player, this.chasingDrones, () => this.finish('A chasing drone caught you!'));
+    this.physics.add.overlap(this.player, this.projectiles, () => this.finish('A bullet hit you!'));
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -57,6 +54,44 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
   }
 
+  spawnShooter() {
+    const c = COIN_DASH;
+    const side = Math.random() > 0.5 ? 0 : 1;
+    let x, y, vx, vy;
+
+    if (side === 0) {
+      x = Math.random() > 0.5 ? -20 : c.width + 20;
+      y = Phaser.Math.Between(70, c.height - 50);
+      vx = side === 0 ? (x < c.width / 2 ? c.shooterSpeed : -c.shooterSpeed) : 0;
+      vy = 0;
+    } else {
+      x = Phaser.Math.Between(50, c.width - 50);
+      y = Math.random() > 0.5 ? 44 : c.height + 20;
+      vx = 0;
+      vy = y < c.height / 2 ? c.shooterSpeed : -c.shooterSpeed;
+    }
+
+    const shooter = this.add.rectangle(x, y, 20, 20, c.colors.shooter);
+    this.shooters.add(shooter);
+    shooter.body.setVelocity(vx, vy);
+    shooter.body.setBounce(0, 0);
+    this.lastShooterShot[shooter.id] = 0;
+  }
+
+  shootProjectile(shooter) {
+    const c = COIN_DASH;
+    const dx = this.player.x - shooter.x;
+    const dy = this.player.y - shooter.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 0) {
+      const bullet = this.add.rectangle(shooter.x, shooter.y, 6, 6, c.colors.projectile);
+      this.projectiles.add(bullet);
+      const speed = c.projectileSpeed;
+      bullet.body.setVelocity((dx / dist) * speed, (dy / dist) * speed);
+    }
+  }
+
   update() {
     if (this.finished) return;
     const dx = Number(this.cursors.right.isDown || this.keys.D.isDown)
@@ -67,15 +102,33 @@ class CoinDash extends Phaser.Scene {
     this.player.body.setVelocity(direction.x, direction.y);
 
     const c = COIN_DASH;
-    this.chasingDrones.children.entries.forEach(drone => {
-      const toPlayer = new Phaser.Math.Vector2(
-        this.player.x - drone.x,
-        this.player.y - drone.y
-      ).normalize().scale(c.chasingDroneSpeed);
-      drone.body.setVelocity(toPlayer.x, toPlayer.y);
 
-      const pulse = 0.6 + 0.4 * Math.sin(this.time.now / 150);
-      drone.setAlpha(pulse);
+    if (this.time.now - this.lastShooterSpawn > c.shooterSpawnInterval) {
+      this.spawnShooter();
+      this.lastShooterSpawn = this.time.now;
+    }
+
+    this.shooters.children.entries.forEach(shooter => {
+      if (!this.lastShooterShot[shooter.id]) {
+        this.lastShooterShot[shooter.id] = 0;
+      }
+
+      if (this.time.now - this.lastShooterShot[shooter.id] > c.shooterShootInterval) {
+        this.shootProjectile(shooter);
+        this.lastShooterShot[shooter.id] = this.time.now;
+      }
+
+      if (shooter.x < -50 || shooter.x > c.width + 50 ||
+          shooter.y < 0 || shooter.y > c.height + 50) {
+        shooter.destroy();
+      }
+    });
+
+    this.projectiles.children.entries.forEach(projectile => {
+      if (projectile.x < -20 || projectile.x > c.width + 20 ||
+          projectile.y < -20 || projectile.y > c.height + 50) {
+        projectile.destroy();
+      }
     });
 
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
