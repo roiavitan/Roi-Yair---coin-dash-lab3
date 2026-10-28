@@ -26,12 +26,20 @@ class CoinDash extends Phaser.Scene {
       const angle = (35 + i * 105) * Math.PI / 180;
       drone.body.setVelocity(Math.cos(angle) * c.droneSpeed, Math.sin(angle) * c.droneSpeed);
     }
+    this.chasingDrones = this.physics.add.group();
+    for (let i = 0; i < c.chasingDroneCount; i++) {
+      const drone = this.add.rectangle(100 + i * 300, 300, 26, 26, c.colors.chasingDrone);
+      this.chasingDrones.add(drone);
+      drone.body.setCollideWorldBounds(true).setBounce(1, 1);
+      drone.isChasing = true;
+    }
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
+    this.physics.add.overlap(this.player, this.chasingDrones, () => this.finish('A chasing drone caught you!'));
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -57,6 +65,19 @@ class CoinDash extends Phaser.Scene {
       - Number(this.cursors.up.isDown || this.keys.W.isDown);
     const direction = new Phaser.Math.Vector2(dx, dy).normalize().scale(COIN_DASH.playerSpeed);
     this.player.body.setVelocity(direction.x, direction.y);
+
+    const c = COIN_DASH;
+    this.chasingDrones.children.entries.forEach(drone => {
+      const toPlayer = new Phaser.Math.Vector2(
+        this.player.x - drone.x,
+        this.player.y - drone.y
+      ).normalize().scale(c.chasingDroneSpeed);
+      drone.body.setVelocity(toPlayer.x, toPlayer.y);
+
+      const pulse = 0.6 + 0.4 * Math.sin(this.time.now / 150);
+      drone.setAlpha(pulse);
+    });
+
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
     this.hud.setText(`Coins: ${this.score}                       Time: ${seconds}s`);
     if (seconds === 0) this.finish('Time is up!');
