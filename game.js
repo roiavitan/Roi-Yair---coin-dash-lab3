@@ -6,6 +6,8 @@ class CoinDash extends Phaser.Scene {
     const c = COIN_DASH;
     this.score = 0;
     this.finished = false;
+    this.shieldActive = false;
+    this.shieldEndTime = 0;
     this.deadline = this.time.now + c.roundSeconds * 1000;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
@@ -18,6 +20,10 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.existing(this.coin);
     this.coin.body.setCircle(9);
     this.placeCoin();
+    this.shield = this.add.circle(100, 100, 11, c.colors.shield);
+    this.physics.add.existing(this.shield);
+    this.shield.body.setCircle(11);
+    this.shield.active = false;
     this.drones = this.physics.add.group();
     for (let i = 0; i < c.droneCount; i++) {
       const drone = this.add.rectangle(90 + i * 270, 100, 26, 26, c.colors.drone);
@@ -29,9 +35,22 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
-      this.placeCoin();
+      if (Math.random() < c.shieldSpawnChance) {
+        this.placeShield();
+      } else {
+        this.placeCoin();
+      }
     });
-    this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
+    this.physics.add.overlap(this.player, this.shield, () => {
+      if (this.finished || !this.shield.active) return;
+      this.activateShield();
+      this.shield.active = false;
+      this.placeShield();
+    });
+    this.physics.add.overlap(this.player, this.drones, () => {
+      if (this.finished || this.shieldActive) return;
+      this.finish('A drone caught you!');
+    });
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -39,7 +58,6 @@ class CoinDash extends Phaser.Scene {
 
   placeCoin() {
     const c = COIN_DASH;
-    // Avoid spawning the next coin directly underneath the player.
     let x, y;
     do {
       x = Phaser.Math.Between(25, c.width - 25);
@@ -47,6 +65,25 @@ class CoinDash extends Phaser.Scene {
     } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 60);
     this.coin.setPosition(x, y);
     this.coin.body.reset(x, y);
+  }
+
+  placeShield() {
+    const c = COIN_DASH;
+    let x, y;
+    do {
+      x = Phaser.Math.Between(25, c.width - 25);
+      y = Phaser.Math.Between(70, c.height - 25);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 60);
+    this.shield.setPosition(x, y);
+    this.shield.body.reset(x, y);
+    this.shield.active = true;
+  }
+
+  activateShield() {
+    const c = COIN_DASH;
+    this.shieldActive = true;
+    this.shieldEndTime = this.time.now + c.shieldDuration;
+    this.player.setFillStyle(c.colors.playerShielded);
   }
 
   update() {
@@ -58,7 +95,19 @@ class CoinDash extends Phaser.Scene {
     const direction = new Phaser.Math.Vector2(dx, dy).normalize().scale(COIN_DASH.playerSpeed);
     this.player.body.setVelocity(direction.x, direction.y);
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
-    this.hud.setText(`Coins: ${this.score}                       Time: ${seconds}s`);
+
+    if (this.shieldActive && this.time.now >= this.shieldEndTime) {
+      this.shieldActive = false;
+      this.player.setFillStyle(COIN_DASH.colors.player);
+    }
+
+    let hud = `Coins: ${this.score}                       Time: ${seconds}s`;
+    if (this.shieldActive) {
+      const shieldSeconds = Math.ceil((this.shieldEndTime - this.time.now) / 1000);
+      hud += `  Shield: ${shieldSeconds}s`;
+    }
+    this.hud.setText(hud);
+
     if (seconds === 0) this.finish('Time is up!');
   }
 
