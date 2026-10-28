@@ -1,14 +1,27 @@
 /* global Phaser, COIN_DASH */
+const HIGH_SCORE_KEY = 'coinDash.highScore';
+
+// localStorage can be unavailable (private mode, blocked storage), so fail soft.
+function loadHighScore() {
+  try { return Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0; } catch (e) { return 0; }
+}
+
+function saveHighScore(value) {
+  try { localStorage.setItem(HIGH_SCORE_KEY, String(value)); } catch (e) { /* ignore */ }
+}
+
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
   create() {
     const c = COIN_DASH;
     this.score = 0;
+    this.highScore = loadHighScore();
     this.finished = false;
     this.shieldActive = false;
     this.shieldEndTime = 0;
     this.nextShieldSpawnTime = this.time.now + Phaser.Math.Between(5000, 15000);
+    this.paused = false;
     this.deadline = this.time.now + c.roundSeconds * 1000;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
@@ -70,6 +83,31 @@ class CoinDash extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
+    this.input.keyboard.addCapture('SPACE');
+    this.input.keyboard.on('keydown-P', () => this.togglePause());
+    this.input.keyboard.on('keydown-SPACE', () => this.togglePause());
+  }
+
+  togglePause() {
+    if (this.finished) return;
+    this.paused = !this.paused;
+    if (this.paused) {
+      this.pausedAt = this.time.now;
+      this.physics.pause();
+      const c = COIN_DASH;
+      this.pauseOverlay = this.add.container(c.width / 2, c.height / 2, [
+        this.add.rectangle(0, 0, 360, 120, 0x0a1120, 0.9),
+        this.add.text(0, -12, 'PAUSED', { font: '40px monospace', color: '#ffffff' }).setOrigin(0.5),
+        this.add.text(0, 30, 'Press P or Space to resume',
+          { font: '16px monospace', color: '#cbd5e1' }).setOrigin(0.5)
+      ]).setDepth(10);
+    } else {
+      // Push the deadline back so time spent paused doesn't count against the round.
+      this.deadline += this.time.now - this.pausedAt;
+      this.physics.resume();
+      this.pauseOverlay.destroy();
+      this.pauseOverlay = null;
+    }
   }
 
   placeCoin() {
@@ -143,7 +181,7 @@ class CoinDash extends Phaser.Scene {
   }
 
   update() {
-    if (this.finished) return;
+    if (this.finished || this.paused) return;
     const dx = Number(this.cursors.right.isDown || this.keys.D.isDown)
       - Number(this.cursors.left.isDown || this.keys.A.isDown);
     const dy = Number(this.cursors.down.isDown || this.keys.S.isDown)
@@ -195,7 +233,7 @@ class CoinDash extends Phaser.Scene {
       this.placeShield();
     }
 
-    this.hud.setText(`Coins: ${this.score}                       Time: ${seconds}s`);
+    this.hud.setText(`Coins: ${this.score}     Best: ${this.highScore}               Time: ${seconds}s`);
 
     if (this.shieldActive) {
       const shieldSeconds = Math.ceil((this.shieldEndTime - this.time.now) / 1000);
@@ -211,10 +249,16 @@ class CoinDash extends Phaser.Scene {
     if (this.finished) return;
     this.finished = true;
     this.physics.pause();
+    const newRecord = this.score > this.highScore;
+    if (newRecord) {
+      this.highScore = this.score;
+      saveHighScore(this.highScore);
+      this.hud.setText(this.hud.text.replace(/Best: \d+/, `Best: ${this.highScore}`));
+    }
     const c = COIN_DASH;
     this.add.rectangle(c.width / 2, c.height / 2, 460, 150, 0x0a1120, 0.95);
     this.add.text(c.width / 2, c.height / 2,
-      `${reason}\n${this.score} coins collected\nPress R to try again`,
+      `${reason}\n${newRecord ? 'New best! ' : ''}${this.score} coins collected\nPress R to try again`,
       { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 12 }
     ).setOrigin(0.5);
   }
