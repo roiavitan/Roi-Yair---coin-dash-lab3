@@ -36,7 +36,8 @@ class CoinDash extends Phaser.Scene {
     this.shieldAura.setFillStyle(null);
     this.shieldTimer = this.add.text(c.width - 18, 12, '', {
       font: '18px monospace',
-      color: c.colors.shield,
+      // Phaser text needs a CSS colour string, not a 0xRRGGBB number.
+      color: '#' + c.colors.shield.toString(16).padStart(6, '0'),
       align: 'right'
     }).setOrigin(1, 0);
     this.coin = this.add.circle(100, 100, 9, c.colors.coin);
@@ -59,7 +60,6 @@ class CoinDash extends Phaser.Scene {
     this.shooters = this.physics.add.group();
     this.projectiles = this.physics.add.group();
     this.lastShooterSpawn = 0;
-    this.lastShooterShot = {};
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
@@ -102,8 +102,14 @@ class CoinDash extends Phaser.Scene {
           { font: '16px monospace', color: '#cbd5e1' }).setOrigin(0.5)
       ]).setDepth(10);
     } else {
-      // Push the deadline back so time spent paused doesn't count against the round.
-      this.deadline += this.time.now - this.pausedAt;
+      // Push every timer back so time spent paused doesn't count against the round,
+      // the shield, or the shooters.
+      const pausedFor = this.time.now - this.pausedAt;
+      this.deadline += pausedFor;
+      this.shieldEndTime += pausedFor;
+      this.nextShieldSpawnTime += pausedFor;
+      this.lastShooterSpawn += pausedFor;
+      this.shooters.getChildren().forEach(shooter => { shooter.lastShot += pausedFor; });
       this.physics.resume();
       this.pauseOverlay.destroy();
       this.pauseOverlay = null;
@@ -163,7 +169,8 @@ class CoinDash extends Phaser.Scene {
     this.shooters.add(shooter);
     shooter.body.setVelocity(vx, vy);
     shooter.body.setBounce(0, 0);
-    this.lastShooterShot[shooter.id] = 0;
+    // Each shooter keeps its own fire timer (Phaser game objects have no id).
+    shooter.lastShot = 0;
   }
 
   shootProjectile(shooter) {
@@ -196,14 +203,11 @@ class CoinDash extends Phaser.Scene {
       this.lastShooterSpawn = this.time.now;
     }
 
-    this.shooters.children.entries.forEach(shooter => {
-      if (!this.lastShooterShot[shooter.id]) {
-        this.lastShooterShot[shooter.id] = 0;
-      }
-
-      if (this.time.now - this.lastShooterShot[shooter.id] > c.shooterShootInterval) {
+    // Iterate over copies: destroying a child while looping over the live list skips the next one.
+    this.shooters.getChildren().slice().forEach(shooter => {
+      if (this.time.now - shooter.lastShot > c.shooterShootInterval) {
         this.shootProjectile(shooter);
-        this.lastShooterShot[shooter.id] = this.time.now;
+        shooter.lastShot = this.time.now;
       }
 
       if (shooter.x < -50 || shooter.x > c.width + 50 ||
@@ -212,7 +216,7 @@ class CoinDash extends Phaser.Scene {
       }
     });
 
-    this.projectiles.children.entries.forEach(projectile => {
+    this.projectiles.getChildren().slice().forEach(projectile => {
       if (projectile.x < -20 || projectile.x > c.width + 20 ||
           projectile.y < -20 || projectile.y > c.height + 50) {
         projectile.destroy();
